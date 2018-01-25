@@ -828,9 +828,18 @@ func (cc *ClientConn) roundTrip(req *http.Request) (res *http.Response, gotErrAf
 	bodyWriter := cc.t.getBodyWriterState(cs, body)
 	cs.on100 = bodyWriter.on100
 
+	ctx := reqContext(req)
+
 	cc.wmu.Lock()
 	endStream := !hasBody && !hasTrailers
+	d, hasDeadline := ctx.Deadline()
+	if hasDeadline { // or transport base timeout ?
+		cc.tconn.SetWriteDeadline(d)
+	}
 	werr := cc.writeHeaders(cs.ID, endStream, int(cc.maxFrameSize), hdrs)
+	if hasDeadline {
+		cc.tconn.SetWriteDeadline(time.Time{})
+	}
 	cc.wmu.Unlock()
 	traceWroteHeaders(cs.trace)
 	cc.mu.Unlock()
@@ -861,7 +870,6 @@ func (cc *ClientConn) roundTrip(req *http.Request) (res *http.Response, gotErrAf
 
 	readLoopResCh := cs.resc
 	bodyWritten := false
-	ctx := reqContext(req)
 
 	handleReadLoopResponse := func(re resAndError) (*http.Response, bool, error) {
 		res := re.res
